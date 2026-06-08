@@ -1,0 +1,1116 @@
+---
+title: "MPH Capstone"
+author: "Brandon Leggins"
+output:
+  html_document:
+    number_sections: true
+    toc: true
+    toc_float:
+      collapsed: false
+---
+
+# Data Cleaning
+```{r }
+
+#load packages
+library(haven)
+library(dplyr)
+library(tidyverse)
+
+
+#read stata file 
+
+chis2024 <- read_dta("ADULT.dta")
+
+
+
+#data cleaning
+newchis <- chis2024 %>%
+ 
+  mutate(
+   
+      agegroup = fct_collapse(factor(srage_p1),
+      "18-25" = c("18"),
+      "26-39" = c("26", "30", "35"),
+      "40-64" = c("40", "45", "50", "55", "60"),
+      "65+"   = c("65", "70", "75", "80", "85")
+    ), 
+    
+    # Recode Stable House: (Using a binary logic)
+    instability = case_when(
+      stablehouse == 1 ~ "no", # Very/Fairly/Somewhat stable
+      stablehouse == 2 ~ "yes",  # Fairly and very unstable
+      TRUE ~ NA_character_
+    ),
+    
+    # Detailed Housing Stability (AM183)
+    noncollaspedhousing = factor(am183,
+                                 levels = c(1, 2, 3, 4, 5),
+                                 labels = c("very stable", "fairly stable", "somewhat stable", 
+                                            "fairly unstable", "Very unstable")),
+
+    # Recode variable on worry about rent/mortgage (AM184)
+    unaffordability = case_when( 
+                          am184 %in% c(1,2) ~ "yes",
+                          am184 %in% c(3,4) ~ "no", #not housing insecure is the ref            
+                        TRUE ~ NA_character_
+    ),
+    
+    # Create Housing Insecurity variable. If they said yes for either unaffordable or instability, then housing insecurity = yes
+    housing_insecure = case_when(
+      unaffordability == "yes" | instability == "yes" ~ "yes",
+      unaffordability == "no" & instability == "no"   ~ "no",
+      TRUE ~ NA_character_
+    ),
+  
+    # Demographics
+    gender = factor(srsex, levels = c(1, 2), labels = c("Male", "Female")),
+    
+    race = factor(case_when(
+  ombsrr_p1 %in% c(4, 6) ~ "Other",
+  ombsrr_p1 == 1 ~ "Hispanic",
+  ombsrr_p1 == 2 ~ "White",
+  ombsrr_p1 == 3 ~ "Black",
+  ombsrr_p1 == 5 ~ "Asian"), levels = c("Asian", "Black", "Hispanic", 
+               "Other","White")),
+    
+    education = factor(sreduc, 
+                       levels = 1:4, 
+                       labels = c("< HS", "HS education", "Some college", "College degree and above")),
+    
+    urban = factor(ur_clrt2, levels = c(1, 2), labels = c("Urban", "Rural")),
+    
+    poverty = factor(povll, levels = c(1:4),
+                            labels = c("0-99%", "100-199%", "200-299%", "300% and above")),
+    
+    
+    marital = case_when(
+  marit2 %in% c(1, 2) ~ "partnered",
+  marit2 %in% c(3, 4) ~ "unpartnered"
+) %>% factor(),
+   
+  bmi = factor(rbmi, levels = c(1:4),
+                      labels = c("underweight", "normal", "overweight", "obese")),
+
+  physical_activity = factor(ac212, levels = c(1,2),
+                                    labels = c("yes", "no")),
+
+
+
+    # Simple Yes/No for Diabetes 
+    diabetes = factor(ab22v2, levels = c(1, 2), labels = c("yes", "no")),
+   
+    
+    housingdiscrimination = factor(am189, levels = c(1,2), labels  = c("yes", "no")),
+    
+    #**diabetes management
+    #doctor said A1c is greater than 9%?. only those who responded yes to ever being told they have diabetes sees this question
+   uncontrolleddiab = factor(ifelse(ab150 %in% c(-1, 3), NA, ab150), #-1 are participants who did not get the question because they never had diabetes. 3 are participants who are unsure
+                           levels = c(1,2), 
+                           labels = c("no", "yes")),
+   
+   # number of times they checked a1c in last year
+      a1c_check = factor( case_when(
+    ab27_p1 %in% c(0, 1) ~ "< 1 times",
+    ab27_p1 %in% c(2, 3, 4, 5)     ~ ">= 2 times",  
+    ab27_p1 < 0             ~  NA_character_, 
+    TRUE                   ~  NA_character_  # Everything else becomes NA
+  ), 
+  levels = c("< 1 times", ">= 2 times")),
+  
+  
+  #doctors provided developed diabetes care plan
+    diabetesplan = factor(ifelse(ab112 %in% c(-1), NA, ab112), #-1 are participants who did not get the question because they never had diabetes. 
+                           levels = c(1,2), 
+                           labels = c("yes", "no")),
+   
+  
+    #Currently taking insulin or pills to manage diabetes. 
+    ##only those who responded yes to ever being diagnoses with diabetes sees this
+   
+   diabetesmeds = factor(
+  case_when(
+    diamed %in% c(1, 2, 3) ~ "yes meds",
+    diamed == 4            ~ "no meds",  
+    diamed < 0             ~  NA_character_, 
+    TRUE                   ~  NA_character_  # Everything else becomes NA
+  ), 
+  levels = c("yes meds", "no meds")),
+
+  generalhealth = factor(ab1, 
+                  levels = c(1:5), 
+                  labels = c("Excellent", "Very good", "Good", 
+                             "Fair", "Poor")),
+
+  hypertension = factor(ab29v2, 
+                  levels = c(1:3), 
+                  labels = c("Yes", "No", "Borderline hypertension")),
+
+  heartdisease = factor(ab34, 
+                  levels = c(1,2), 
+                  labels = c("Yes", "No")),
+
+   cholesterol = factor(ab154, 
+                  levels = c(1:3), 
+                  labels = c("Yes", "No", "Dont know")),
+
+    )
+```
+## Frequency tables
+```{r check}
+# Checking my work to see if variables are recoded correctly 
+
+
+sum(is.na(newchis$housing_insecure)) # checks how many NAs
+table(newchis$diabetes, newchis$ab22v2) #outcome of diabetes check
+table(newchis$diabetes)
+
+table(newchis$race, newchis$ombsrr_p1) #race
+
+
+
+```
+
+
+# Weighted table 1
+```{r}
+#unweighted table
+library(gtsummary)
+library(srvyr)
+library(survey)
+
+
+
+
+#creating survey weights for weighted table 1
+##removed type, scale, and mse options because I just need frequencies not 95%CI and variance
+ chis_design1 <- svydesign(
+  data    = newchis,
+  weights = ~rakedw0,
+  ids     = ~1          
+)
+
+ 
+ 
+#weighted table 1, with only percentages no counts
+tbl1_weighted<- chis_design1 %>%
+  tbl_svysummary(
+    include = c(gender, agegroup, race, education, urban, poverty, marital, diabetes, bmi, physical_activity, generalhealth, hypertension, heartdisease),
+    by = housing_insecure,
+    type = list(gender ~ "dichotomous",
+                urban ~ "dichotomous",
+                marital ~ "dichotomous"),
+    value = list(gender ~ "Male",
+                 urban ~ "Urban",
+                 marital ~ "partnered"),
+    label = list(gender ~ "Male",
+                 urban ~ "Urban Residence",
+                 agegroup ~ "Age Group",
+                 race ~ "Race/Ethnicity",
+                 education ~ "Education",
+                 poverty ~ "Poverty Level",
+                 marital ~ "Married/Living with partner",
+                 diabetes ~ "Diabetes yes",
+                bmi ~ "BMI",
+                physical_activity ~ "Physical Activity yes",
+                generalhealth ~ "Self reported health",
+                hypertension ~ "Hypertension",
+                heartdisease ~ "Heart disease"
+                ),
+    statistic = list(all_categorical() ~ "{p}"), # Added % symbol for clarity
+    digits = list(all_categorical() ~ 1)        # This ensures 1 decimal place (e.g., 10.1)
+  ) %>%
+  add_overall() %>%
+  # FLIP THE COLUMN ORDER HERE: Move 'stat_2' (yes) before 'stat_1' (no)
+  modify_table_body(~ .x %>% relocate(stat_2, .before = stat_1)) %>%
+  modify_spanning_header(all_stat_cols() ~ "**Housing Insecurity Status**") %>%
+  bold_labels() 
+
+tbl1_weighted
+
+#save table as word doc
+library(flextable)
+tbl1_weighted %>%
+  as_flex_table() %>%
+  flextable::save_as_docx(path = "table1weighted.docx")
+
+
+```
+
+
+
+
+# Preparing dataset for weighted regression models 
+```{r analysis}
+library(survey)
+library(gtsummary)
+#assigning reference levels
+newchis <- newchis %>%
+  mutate(
+    unaffordability = relevel(as.factor(unaffordability), ref = "no"),
+    instability = relevel(as.factor(instability), ref = "no"),
+    housing_insecure= relevel(as.factor(housing_insecure), ref = "no"),
+    agegroup           = relevel(as.factor(agegroup),           ref = "65+"),
+    gender             = relevel(as.factor(gender),             ref = "Male"),
+    poverty            = relevel(as.factor(poverty),            ref = "300% and above"),
+    education         = relevel(as.factor(education), ref = "College degree and above"),
+    housingdiscrimination     = relevel(as.factor(housingdiscrimination), ref = "no"),
+    marital = relevel(as.factor(marital), ref = "partnered"),
+    bmi = relevel(as.factor(bmi), ref = "normal"),
+    physical_activity = relevel(as.factor(physical_activity), ref = "no"),
+    
+    # 2. Outcomes for Models (Numeric 0/1 -). #poisson model needs 0 and 1 variable
+    diabetes_num = ifelse(diabetes == "yes", 1, 0),
+    uncontrolled_num = ifelse(uncontrolleddiab == "yes", 1, 0),
+    diabetesmeds_num = ifelse(diabetesmeds == "yes meds", 1, 0),
+    diabetesplan_num = ifelse(diabetesplan == "no", 1, 0),
+    a1c_check_num = ifelse(a1c_check == "< 1 times", 1, 0),
+    
+  )
+
+
+#CHIS suggested code for survey weights
+chis_design <- svrepdesign(data = newchis , weights = ~ rakedw0 , 
+                           repweights = "rakedw[1-80]" , 
+                           type = "other" , scale = 1 ,
+                           rscales = 1 , mse = TRUE)
+```
+
+# Bar graph of diabetes prevelance by housing insecurity status
+```{r figure}
+
+library(ggplot2)
+
+
+
+prop_table <- svyby(~diabetes_num, ~race + housing_insecure, 
+                    design = chis_design, svymean, na.rm = TRUE) %>%
+  mutate(race = factor(race, levels = c("Asian", "Black", "Hispanic", "Other", "White")))
+
+figure1 <- ggplot(prop_table, aes(x = race, y = diabetes_num, fill = housing_insecure)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+       y = "Prevalence (%)",
+       x = "Race/Ethnicity",
+       fill = "Housing Insecurity") +
+  theme_minimal() 
+
+figure1
+
+#save to copy to word 
+ggsave(
+  filename = "diabetes_prevalence_hd.png", 
+  plot = figure1, 
+  width = 8,       # Dimensions in inches, perfect for a standard Word margin
+  height = 5, 
+  dpi = 300        # This sets the high-definition resolution
+)
+```
+
+## Weighted ORs
+Diabetes is not rare in this sample (>10%) so we do not want to intepret odds ratio because it may overestimate the effect. But we should still check the ORs
+```{r}
+
+#weighted odds ratio for diabetes
+
+library(survey)
+library(ggplot2)
+
+
+
+#Odds ratio
+modelOR<- svyglm(diabetes ~  unaffordability + 
+                agegroup + race
+                + gender + poverty + education,
+                design = chis_design,
+                family=quasibinomial(),
+                   rescale=TRUE)
+
+modelOR %>%
+  tbl_regression(exponentiate = TRUE,
+                 include = unaffordability) %>%  # only show housing insecurity
+  bold_labels() %>%
+  modify_column_hide(p.value) %>% #hide p value 
+  modify_caption("**OR model 1**")
+
+
+```
+ 
+## Aim 1: Weighted prevalence ratios (PR)
+Association of housing insecurity and diabetes, adjusting for age, gender, poverty, and education
+```{r poisson}
+
+
+#unadjusted model 1 
+
+model1<- svyglm(diabetes_num ~ housing_insecure,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+model1_tbl <- model1 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    include = housing_insecure,
+    # This changes the "Characteristic" column to "Variable" if you prefer
+    label = list(housing_insecure ~ "Housing Insecurity") 
+  ) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  # This line changes the column header from IRR to PR
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_caption("**Model 1 unadjusted: Prevalence Ratios for Diabetes**")  %>%
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+
+#model 2 adjusted model
+model2<- svyglm(diabetes_num ~ housing_insecure+agegroup+race+gender+poverty+education+marital,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+model2_tbl <- model2 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    include = housing_insecure,
+    # This changes the "Characteristic" column to "Variable" if you prefer
+    label = list(housing_insecure ~ "Housing Insecurity") 
+  ) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  # This line changes the column header from IRR to PR
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_caption("**Model 2: Prevalence Ratios for Diabetes**")  %>%
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+
+#model 3: bmi and physical activity added to model 2
+model3<- svyglm(diabetes_num ~ housing_insecure+agegroup+race+gender+poverty+education+marital+bmi+physical_activity,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+model3_tbl <- model3 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    include = housing_insecure,
+    # This changes the "Characteristic" column to "Variable" if you prefer
+    label = list(housing_insecure ~ "Housing Insecurity") 
+  ) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  # This line changes the column header from IRR to PR
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_caption("**Model 3: Prevalence Ratios for Diabetes**")  %>%
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+
+
+#merge models 1-3
+#merge adjusted and unadjusted tables
+aim1_tbl<- tbl_merge(
+  tbls = list(model1_tbl, model2_tbl, model3_tbl),
+  tab_spanner = c("**Unadjusted**", "**Adjusted**", "**Fully Adjusted**") 
+) %>%
+  modify_caption("**Model 1-3: Prevalence Ratios for Diabetes**")
+
+aim1_tbl
+
+#convert aim 1 table to word
+aim1_tbl %>%
+  as_flex_table() %>%
+  flextable::save_as_docx(path = "aim1_table.docx")
+
+```
+
+
+## Aim 2: stratum specific PRs for race/ethnicity
+```{r}
+
+
+# 1. Get the list of all your race groups
+race_levels <- levels(chis_design$variables$race)
+
+# 2. Loop to build the 3-column table for EVERY individual race group
+race_tables_list <- lapply(race_levels, function(r) {
+  
+  # Filter data for the current race group
+  race_subset <- subset(chis_design, race == r)
+  
+  # Create the customized text label for this specific race strata
+  strata_label <- paste0("Housing Insecurity (", r, " strata)")
+  
+  # Step B: Run the Unadjusted Model
+  m1_race <- svyglm(diabetes_num ~ housing_insecure, 
+                    design = race_subset, 
+                    family = poisson(link = "log"), rescale = TRUE) %>%
+    tbl_regression(exponentiate = TRUE, 
+                   include = housing_insecure, 
+                   label = list(housing_insecure ~ strata_label)) %>% # <-- UPDATED LABEL
+    bold_labels() %>% modify_column_hide(p.value)
+  
+  # Step C: Run the Adjusted Model
+  m2_race <- svyglm(diabetes_num ~ housing_insecure + agegroup + gender + poverty + education + marital, 
+                    design = race_subset, 
+                    family = poisson(link = "log"), rescale = TRUE) %>%
+    tbl_regression(exponentiate = TRUE, 
+                   include = housing_insecure, 
+                   label = list(housing_insecure ~ strata_label)) %>% # <-- UPDATED LABEL
+    bold_labels() %>% modify_column_hide(p.value)
+  
+  # Step D: Run the Adjusted + Health Model
+  m3_race <- svyglm(diabetes_num ~ housing_insecure + agegroup + gender + poverty + education + marital + bmi + physical_activity, 
+                    design = race_subset, 
+                    family = poisson(link = "log"), rescale = TRUE) %>%
+    tbl_regression(exponentiate = TRUE, 
+                   include = housing_insecure, 
+                   label = list(housing_insecure ~ strata_label)) %>% # <-- UPDATED LABEL
+    bold_labels() %>% modify_column_hide(p.value)
+  
+  # Step E: Merge these 3 specific models side-by-side
+  tbl_merge(
+    tbls = list(m1_race, m2_race, m3_race), 
+    tab_spanner = c("**Unadjusted**", "**Adjusted**", "**Fully adjusted**")
+  )
+})
+
+# 3. Stack all of those mini tables vertically on top of each other
+aim2_tbl_long <- tbl_stack(
+  tbls = race_tables_list
+  # Removed group_header entirely so it doesn't create the extra header rows
+) %>%
+  modify_caption("**Table: Race Stratified Prevalence Ratios for Diabetes by Housing Insecurity**") %>%
+  modify_table_styling(
+    columns = everything(),
+    footnote = "PR = Prevalence Ratio; CI = Confidence Interval"
+  )
+
+aim2_tbl_long
+
+#convert aim 2 table to word
+aim2_tbl_long %>%
+  as_flex_table() %>%
+  flextable::save_as_docx(path = "aim2_table.docx")
+
+
+
+```
+
+### Forest Plot of PRs stratified by race
+```{r forest}
+
+library(broom)
+
+library(ggplot2)
+
+# 1. Programmatically extract the estimates and CIs from the models
+plot_data <- lapply(race_levels, function(r) {
+  model <- svyglm(diabetes_num ~ housing_insecure + agegroup + gender + poverty + education,
+         design = subset(chis_design, race == r),
+         family = poisson(link = "log"),
+         rescale = TRUE)
+  
+  tidy_model <- tidy(model, exponentiate = TRUE, conf.int = TRUE)
+  
+  tidy_model %>%
+    filter(grepl("housing_insecure", term)) %>% 
+    mutate(race_stratum = r)
+    
+}) %>% 
+  bind_rows() %>%
+  mutate(race_stratum = fct_relevel(race_stratum, 
+                                    "White", "Other", "Hispanic", "Black", "Asian"))
+
+figure2 <- ggplot(plot_data, aes(x = estimate, y = race_stratum)) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "red", linewidth = 0.8) +
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), width = 0.2, 
+                color = "darkblue", linewidth = 0.8, orientation = "y") +
+  geom_point(color = "darkblue", size = 3.5) +
+  labs(
+    subtitle = "Association between housing insecurity and diabetes by race",
+    x = "Prevalence Ratio (95% CI)",
+    y = "Race/Ethnicity"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold", size = 14),
+    axis.title = element_text(face = "bold")
+  )
+
+figure2
+
+#save to copy to word 
+  ggsave(
+  filename = "figure2.png", 
+  plot = figure2, 
+  width = 8,       # Dimensions in inches, perfect for a standard Word margin
+  height = 5, 
+  dpi = 300        # This sets the high-definition resolution
+)
+```
+
+## Aim 3 analysis: Diabetes Management
+three seperate regressions with housing insecurity as the exposure and three unique outcomes: uncontrolled diabetes, clinical care, and diabetes monitoring. 
+
+### Uncontrolled diabetes
+```{r explore}
+
+#unadjusted model 
+uncontroldiab_model1 <- svyglm(uncontrolled_num ~ housing_insecure,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+uncontroldiab_model1_tbl<-uncontroldiab_model1 %>%
+  tbl_regression(exponentiate = TRUE, 
+          include = housing_insecure,
+          label = list(housing_insecure ~ "Housing Insecurity")) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  modify_caption("**models uncontrolled diabetes [yes] **")  %>%
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+ 
+
+#adjusted model
+uncontroldiab_model2<- svyglm(uncontrolled_num ~ housing_insecure+agegroup+race+gender+poverty+education+marital,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+uncontroldiab_model2_tbl<-uncontroldiab_model2 %>%
+  tbl_regression(exponentiate = TRUE, 
+          include = housing_insecure,
+          label = list(housing_insecure ~ "Housing Insecurity")) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  modify_caption("**models uncontrolled diabetes [yes] **")  %>%
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+
+#fully adjusted model
+uncontroldiab_model3<- svyglm(uncontrolled_num ~ housing_insecure+agegroup+race+gender+poverty+education+marital+bmi+physical_activity,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+uncontroldiab_model3_tbl<-uncontroldiab_model3 %>%
+  tbl_regression(exponentiate = TRUE, 
+          include = housing_insecure,
+          label = list(housing_insecure ~ "Housing Insecurity")) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  modify_caption("**models uncontrolled diabetes [yes] **")  %>%
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+
+tbl_uncontrolled<- tbl_merge(
+  tbls = list(uncontroldiab_model1_tbl, uncontroldiab_model2_tbl, uncontroldiab_model3_tbl),
+  tab_spanner = c("**Unadjusted**", "**Adjusted**", "**Fully Adjusted**")
+)
+
+```
+
+### Diabetes monitoring
+```{r a1c}
+
+#unadjusted model
+diabmonitor_model1<- svyglm(a1c_check_num ~ housing_insecure,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+diabmonitor_model1_tbl<-diabmonitor_model1 %>%
+  tbl_regression(exponentiate = TRUE, 
+          include = housing_insecure,
+          label = list(housing_insecure ~ "Housing Insecurity")) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  modify_caption("**models less than 2 a1c checks a year **")  %>%
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+# Adjusted model
+diabmonitor_model2<- svyglm(a1c_check_num ~ housing_insecure+agegroup+race+gender+poverty+education+marital,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+diabmonitor_model2_tbl<-diabmonitor_model2 %>%
+  tbl_regression(exponentiate = TRUE, 
+          include = housing_insecure,
+          label = list(housing_insecure ~ "Housing Insecurity")) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  modify_caption("**models less than two a1c checks a year **")  %>%
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+
+# Fully Adjusted model
+diabmonitor_model3<- svyglm(a1c_check_num ~ housing_insecure+agegroup+race+gender+poverty+education+marital+bmi+physical_activity,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+diabmonitor_model3_tbl<-diabmonitor_model3 %>%
+  tbl_regression(exponentiate = TRUE, 
+          include = housing_insecure,
+          label = list(housing_insecure ~ "Housing Insecurity")) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  modify_caption("**models less than two a1c checks a year **")  %>%
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+
+
+tbl_monitoring<- tbl_merge(
+  tbls = list(diabmonitor_model1_tbl, diabmonitor_model2_tbl, diabmonitor_model3_tbl),
+  tab_spanner = c("**Unadjusted**", "**Adjusted**", "**Fully Adjusted**")
+)
+
+
+```
+
+### Diabetes Care Plan
+```{r plan}
+#diabetes plan
+
+#unadjusted
+diabplan_model1<- svyglm(diabetesplan_num ~ housing_insecure,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+diabplan_model1_tbl<- diabplan_model1 %>%
+  tbl_regression(exponentiate = TRUE, 
+          include = housing_insecure,
+          label = list(housing_insecure ~ "Housing Insecurity")) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  modify_caption("**models not having a diabetes care plan**")  %>%
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+#adjusted
+diabplan_model2<- svyglm(diabetesplan_num ~ housing_insecure+agegroup+race+gender+poverty+education+marital,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+diabplan_model2_tbl<-diabplan_model2 %>%
+  tbl_regression(exponentiate = TRUE, 
+          include = housing_insecure,
+          label = list(housing_insecure ~ "Housing Insecurity")) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  modify_caption("**models not having a diabetes care plan**")  %>%
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+#fully adjusted
+diabplan_model3<- svyglm(diabetesplan_num ~ housing_insecure+agegroup+race+gender+poverty+education+marital+bmi+physical_activity,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+diabplan_model3_tbl<-diabplan_model3 %>%
+  tbl_regression(exponentiate = TRUE, 
+          include = housing_insecure,
+          label = list(housing_insecure ~ "Housing Insecurity")) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  modify_caption("**models not having a diabetes care plan**")  %>%
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+
+tbl_care<- tbl_merge(
+  tbls = list(diabplan_model1_tbl, diabplan_model2_tbl, diabplan_model3_tbl),
+  tab_spanner = c("**Unadjusted**", "**Adjusted**", "**Fully Adjusted**")
+)
+
+```
+
+# Table 3: Diabetes management 
+```{r tbl}
+# stack all three outcomes into one table
+aim3_tbl<-tbl_stack(
+  tbls = list(tbl_care, tbl_monitoring, tbl_uncontrolled),
+  group_header = c("No Diabetes Care Plan", "Poor Diabetes Monitoring", "Uncontrolled Diabetes")
+) %>%
+  modify_caption("**Diabetes Management**")
+
+aim3_tbl
+
+
+#convert aim 1 table to word
+aim3_tbl %>%
+  as_flex_table() %>%
+  flextable::save_as_docx(path = "aim3_table.docx")
+
+```
+
+
+# Sensitivity Analysis: Housing unaffordability and instability
+Sensitivity analysis was conducted to evaluate the sensitivity of results to the distinct dimensions of housing insecurity used in this study
+```{r sensitivity}
+
+
+#unaffordability unadjusted model 1
+ affordability_model1<- svyglm(diabetes_num ~ unaffordability,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+#organized table results
+ affordability_model1_tbl<-affordability_model1 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    include = unaffordability,
+    # This changes the "Characteristic" column to "Variable" if you prefer
+    label = list(unaffordability ~ "Housing unaffordability") 
+  ) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  # This line changes the column header from IRR to PR
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_caption("**Model 2: Prevalence Ratios for Diabetes**")  %>%
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+ 
+#affordability  main model, model 2 
+affordability_model2<- svyglm(diabetes_num ~ unaffordability+agegroup+race+gender+poverty+education+marital,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+#organized table results
+ affordability_model2_tbl<-affordability_model2 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    include = unaffordability,
+    # This changes the "Characteristic" column to "Variable" if you prefer
+    label = list(unaffordability ~ "Housing unaffordability") 
+  ) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  # This line changes the column header from IRR to PR
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_caption("**Model 2: Prevalence Ratios for Diabetes**")  %>%
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+
+#affordability  model 3
+affordability_model3<- svyglm(diabetes_num ~ unaffordability+agegroup+race+gender+poverty+education+marital+bmi+physical_activity,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+#organized table results
+ affordability_model3_tbl<-affordability_model3 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    include = unaffordability,
+    # This changes the "Characteristic" column to "Variable" if you prefer
+    label = list(unaffordability ~ "Housing unaffordability") 
+  ) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  # This line changes the column header from IRR to PR
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_caption("**Model 3: Prevalence Ratios for Diabetes**")  %>%
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+ 
+ 
+ 
+ affordability_sensitivty_tbl <- tbl_merge(
+  tbls = list(affordability_model1_tbl, affordability_model2_tbl, affordability_model3_tbl),
+  tab_spanner = c("**Unadjusted**", "**Adjisted**", "**Fully Adjusted**")
+)
+ 
+ 
+ 
+ 
+ #Instability unadjusted model 1 
+ 
+  instability_model1<- svyglm(diabetes_num ~ instability,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+
+ instability_model1_tbl<-instability_model1 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    include = instability,
+    # This changes the "Characteristic" column to "Variable" if you prefer
+    label = list(instability ~ "Housing instability") 
+  ) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  # This line changes the column header from IRR to PR
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_caption("**Model 3: Prevalence Ratios for Diabetes**") %>%
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+ 
+#instability main model, model 2 
+instability_model2<- svyglm(diabetes_num ~ instability+agegroup+race+gender+poverty+education+marital,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+ instability_model2_tbl<-instability_model2 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    include = instability,
+    # This changes the "Characteristic" column to "Variable" if you prefer
+    label = list(instability ~ "Housing instability") 
+  ) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  # This line changes the column header from IRR to PR
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_caption("**Model 2: Prevalence Ratios for Diabetes**") %>%
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+ #instability  model 3
+instability_model3<- svyglm(diabetes_num ~ instability+agegroup+race+gender+poverty+education+marital+bmi+physical_activity,
+                design = chis_design,
+                family = poisson(link = "log"),
+                rescale=TRUE)
+
+ instability_model3_tbl<-instability_model3 %>%
+  tbl_regression(
+    exponentiate = TRUE, 
+    include = instability,
+    # This changes the "Characteristic" column to "Variable" if you prefer
+    label = list(instability ~ "Housing instability") 
+  ) %>%
+  bold_labels() %>%
+  modify_column_hide(p.value) %>%
+  # This line changes the column header from IRR to PR
+  modify_header(estimate ~ "**PR**") %>% 
+  modify_caption("**Model 2: Prevalence Ratios for Diabetes**") %>%
+  modify_footnote(estimate ~ "PR = Prevalence Ratio; CI = Confidence Interval")
+
+
+ 
+  instability_sensitivty_tbl<-tbl_merge(
+  tbls = list(instability_model1_tbl, instability_model2_tbl, instability_model3_tbl),
+  tab_spanner = c("**Unadjusted**", "**Adjusted**", "**Fully Adjusted**")
+)
+  
+
+  
+
+  
+#merge instability and affordability PR tables
+ 
+ ## stack all three outcomes into one table
+sensitivtyaim_tbl<-tbl_stack(
+  tbls = list(instability_sensitivty_tbl, affordability_sensitivty_tbl),
+  group_header = c("Instable Housing", "Unaffordable  Housing")
+) %>%
+  modify_caption("**Sensitivity Analysis**")
+
+sensitivtyaim_tbl
+
+#convert aim 1 table to word
+sensitivtyaim_tbl %>%
+  as_flex_table() %>%
+  flextable::save_as_docx(path = "sensitivity_table.docx")
+
+```
+
+# Supplementary section
+
+## Unweighted Table 1
+
+```{r sup}
+
+#unweighted table 1 
+
+
+tbl1_unweighted <- tbl_summary(
+    newchis,
+    include = c(gender, agegroup, race, education, urban, poverty, marital, diabetes, bmi, physical_activity, generalhealth, hypertension, heartdisease),
+    by = housing_insecure,
+    type = list(gender ~ "dichotomous",
+                urban ~ "dichotomous",
+                marital ~ "dichotomous"),
+    value = list(gender ~ "Male",
+                 urban ~ "Urban",
+                 marital ~ "partnered"),
+    label = list(gender ~ "Male",
+                 urban ~ "Urban Residence",
+                 agegroup ~ "Age Group",
+                 race ~ "Race/Ethnicity",
+                 education ~ "Education",
+                 poverty ~ "Poverty Level",
+                 marital ~ "Married/Living with partner",
+                 diabetes ~ "Diabetes yes",
+                 bmi ~ "BMI",
+                 physical_activity ~ "Physical Activity yes",
+                 generalhealth ~ "Self reported health",
+                 hypertension ~ "Hypertension",
+                 heartdisease ~ "Heart disease"
+                ),
+    # FIX HERE: Change {p} to {n} ({p})
+    statistic = list(all_categorical() ~ "{n} ({p})"), 
+    # This applies 0 decimal places to the count (n) and 1 decimal place to the percent (p)
+    digits = list(all_categorical() ~ c(0, 1))        
+  ) %>%
+  add_overall() %>%
+  modify_table_body(~ .x %>% relocate(stat_2, .before = stat_1)) %>%
+  modify_spanning_header(all_stat_cols() ~ "**Housing Insecurity Status**")%>%
+  bold_labels()
+
+
+#save table as word doc
+library(flextable)
+tbl1_unweighted %>%
+  as_flex_table() %>%
+  flextable::save_as_docx(path = "tbl1_unweighted.docx")
+
+```
+
+
+## Weighted table 1 restricted by race/ethnicity
+```{r supplemnetary}
+
+#Hispanic only
+tbl1_weighted_hispanic <- subset(chis_design1, race == "Hispanic") %>% # Adjust string to match your data
+  tbl_svysummary(
+    include = c(gender, agegroup, education, urban, poverty, marital, diabetes, bmi, physical_activity, generalhealth, hypertension, heartdisease), # Removed 'race' from include
+    by = housing_insecure,
+    type = list(gender ~ "dichotomous",
+                urban ~ "dichotomous",
+                marital ~ "dichotomous"),
+    value = list(gender ~ "Male",
+                 urban ~ "Urban",
+                 marital ~ "partnered"),
+    label = list(gender ~ "Male",
+                 urban ~ "Urban Residence",
+                 agegroup ~ "Age Group",
+                 education ~ "Education",
+                 poverty ~ "Poverty Level",
+                 marital ~ "Married/Living with partner",
+                 diabetes ~ "Diabetes yes",
+                 bmi ~ "BMI",
+                 physical_activity ~ "Physical Activity yes",
+                 generalhealth ~ "Self reported health",
+                 hypertension ~ "Hypertension",
+                 heartdisease ~ "Heart disease"
+                ),
+    statistic = list(all_categorical() ~ "{p}"), 
+    digits = list(all_categorical() ~ 1)        
+  ) %>%
+  add_overall() %>%
+  modify_table_body(~ .x %>% relocate(stat_2, .before = stat_1)) %>%
+  modify_spanning_header(all_stat_cols() ~ "**Housing Insecurity Status (Hispanic Adults)**") %>%
+  bold_labels() 
+
+tbl1_weighted_hispanic %>%
+  as_flex_table() %>%
+  flextable::save_as_docx(path = "tbl1_weighted_hispanic.docx")
+
+
+
+tbl1_weighted_other <- subset(chis_design1, race == "Other") %>% # Adjust string to match your data
+  tbl_svysummary(
+    include = c(gender, agegroup, education, urban, poverty, marital, diabetes, bmi, physical_activity, generalhealth, hypertension, heartdisease), # Removed 'race' from include
+    by = housing_insecure,
+    type = list(gender ~ "dichotomous",
+                urban ~ "dichotomous",
+                marital ~ "dichotomous"),
+    value = list(gender ~ "Male",
+                 urban ~ "Urban",
+                 marital ~ "partnered"),
+    label = list(gender ~ "Male",
+                 urban ~ "Urban Residence",
+                 agegroup ~ "Age Group",
+                 education ~ "Education",
+                 poverty ~ "Poverty Level",
+                 marital ~ "Married/Living with partner",
+                 diabetes ~ "Diabetes yes",
+                 bmi ~ "BMI",
+                 physical_activity ~ "Physical Activity yes",
+                 generalhealth ~ "Self reported health",
+                 hypertension ~ "Hypertension",
+                 heartdisease ~ "Heart disease"
+                ),
+    statistic = list(all_categorical() ~ "{p}"), 
+    digits = list(all_categorical() ~ 1)        
+  ) %>%
+  add_overall() %>%
+  modify_table_body(~ .x %>% relocate(stat_2, .before = stat_1)) %>%
+  modify_spanning_header(all_stat_cols() ~ "**Housing Insecurity Status (Other race Adults)**") %>%
+  bold_labels() 
+
+tbl1_weighted_other %>%
+  as_flex_table() %>%
+  flextable::save_as_docx(path = "tbl1_weighted_other.docx")
+
+#Asian
+
+tbl1_weighted_asian <- subset(chis_design1, race == "Asian") %>% # Adjust string to match your data
+  tbl_svysummary(
+    include = c(gender, agegroup, education, urban, poverty, marital, diabetes, bmi, physical_activity, generalhealth, hypertension, heartdisease), # Removed 'race' from include
+    by = housing_insecure,
+    type = list(gender ~ "dichotomous",
+                urban ~ "dichotomous",
+                marital ~ "dichotomous"),
+    value = list(gender ~ "Male",
+                 urban ~ "Urban",
+                 marital ~ "partnered"),
+    label = list(gender ~ "Male",
+                 urban ~ "Urban Residence",
+                 agegroup ~ "Age Group",
+                 education ~ "Education",
+                 poverty ~ "Poverty Level",
+                 marital ~ "Married/Living with partner",
+                 diabetes ~ "Diabetes yes",
+                 bmi ~ "BMI",
+                 physical_activity ~ "Physical Activity yes",
+                 generalhealth ~ "Self reported health",
+                 hypertension ~ "Hypertension",
+                 heartdisease ~ "Heart disease"
+                ),
+    statistic = list(all_categorical() ~ "{p}"), 
+    digits = list(all_categorical() ~ 1)        
+  ) %>%
+  add_overall() %>%
+  modify_table_body(~ .x %>% relocate(stat_2, .before = stat_1)) %>%
+  modify_spanning_header(all_stat_cols() ~ "**Housing Insecurity Status (Hispanic Adults)**") %>%
+  bold_labels() 
+
+tbl1_weighted_asian %>%
+  as_flex_table() %>%
+  flextable::save_as_docx(path = "tbl1_weighted_asian.docx")
+
+
+```
+
+
+
+
